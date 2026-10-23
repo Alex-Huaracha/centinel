@@ -5,7 +5,7 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from centinel.db.engine import get_database_url
+from centinel.config import get_settings
 from centinel.db.models import Base
 
 # this is the Alembic Config object, which provides
@@ -17,8 +17,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Read the connection URL from the environment instead of alembic.ini.
-config.set_main_option("sqlalchemy.url", get_database_url())
+# Read the connection URL from the app settings instead of alembic.ini.
+config.set_main_option("sqlalchemy.url", str(get_settings().database_url))
 
 target_metadata = Base.metadata
 
