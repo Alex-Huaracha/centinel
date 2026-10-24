@@ -68,9 +68,7 @@ class Merchant(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), unique=True)
-    default_category_id: Mapped[int | None] = mapped_column(
-        ForeignKey("categories.id")
-    )
+    default_category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"))
 
     default_category: Mapped[Category | None] = relationship()
 
