@@ -3,7 +3,7 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import URL, make_url
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from centinel.config import get_settings
 from centinel.db.models import Base, Category
@@ -42,15 +42,23 @@ def engine() -> Iterator[Engine]:
 
 
 @pytest.fixture
-def session(engine: Engine) -> Iterator[Session]:
-    """A session whose changes are rolled back after each test, even if the code commits."""
+def session_factory(engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """Sessions whose changes are rolled back after each test, even if the code commits."""
     with engine.connect() as connection:
         transaction = connection.begin()
-        session = Session(bind=connection, join_transaction_mode="create_savepoint")
-        session.add_all(
-            [Category(name=name) for name in ("food", "transport", "shopping")]
+        factory = sessionmaker(
+            bind=connection, join_transaction_mode="create_savepoint"
         )
-        session.flush()
-        yield session
-        session.close()
+        with factory() as session:
+            session.add_all(
+                [Category(name=name) for name in ("food", "transport", "shopping")]
+            )
+            session.commit()
+        yield factory
         transaction.rollback()
+
+
+@pytest.fixture
+def session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
+    with session_factory() as session:
+        yield session

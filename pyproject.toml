@@ -9,10 +9,12 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.20.1",
+    "mcp>=2.3.0",
     "psycopg[binary]>=3.3.6",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
     "sqlalchemy>=2.1.6",
+    "tzdata>=2026.5",
 ]
 
 [tool.alembic]
