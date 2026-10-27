@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from centinel.db.models import Category, Expense, ExpenseSource, Merchant
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
+    CreateCategoryInput,
     ExpenseOut,
     FindMerchantInput,
     GetSpendingInput,
@@ -27,14 +28,18 @@ from centinel.expenses.schemas import (
 # --- Helpers ---
 
 
-def _get_category(session: Session, name: str) -> Category:
-    category = session.scalar(
+def _find_category(session: Session, name: str) -> Category | None:
+    return session.scalar(
         select(Category).where(func.lower(Category.name) == name.strip().lower())
     )
+
+
+def _get_category(session: Session, name: str) -> Category:
+    category = _find_category(session, name)
     if category is None:
-        valid = session.scalars(select(Category.name).order_by(Category.name)).all()
         raise ExpenseError(
-            f"Unknown category '{name}'. Valid categories: {', '.join(valid)}."
+            f"Unknown category '{name}'. "
+            f"Valid categories: {', '.join(list_categories(session))}."
         )
     return category
 
@@ -161,3 +166,18 @@ def set_merchant_category(
     return SetMerchantCategoryOut(
         merchant=MerchantOut.from_merchant(merchant), expenses_updated=len(updated_ids)
     )
+
+
+def list_categories(session: Session) -> list[str]:
+    """Names of all categories, alphabetically."""
+    return list(session.scalars(select(Category.name).order_by(Category.name)))
+
+
+def create_category(session: Session, data: CreateCategoryInput) -> str:
+    """Add a new category and return its name, stored in lowercase."""
+    name = data.name.lower()
+    if _find_category(session, name) is not None:
+        raise ExpenseError(f"The category '{name}' already exists.")
+    session.add(Category(name=name))
+    session.commit()
+    return name

@@ -8,7 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import AwareDatetime, BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from centinel.db.models import Expense, Merchant, PaymentMethod
 
@@ -63,6 +63,15 @@ class FindMerchantInput(BaseModel):
 class SetMerchantCategoryInput(BaseModel):
     merchant: str = Field(min_length=1, max_length=200)
     category: str
+
+
+class CreateCategoryInput(BaseModel):
+    # Strip before validating, so "  " is rejected as empty.
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str = Field(
+        min_length=1, max_length=50, description="Category name chosen by the user."
+    )
 
 
 # --- Outputs ---

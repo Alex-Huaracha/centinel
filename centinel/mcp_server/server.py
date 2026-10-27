@@ -18,6 +18,7 @@ from centinel.db.engine import create_db_engine, create_session_factory
 from centinel.expenses import service
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
+    CreateCategoryInput,
     ExpenseOut,
     FindMerchantInput,
     GetSpendingInput,
@@ -33,7 +34,11 @@ INSTRUCTIONS = """\
 Centinel tracks the user's personal expenses.
 - Call get_current_time before resolving relative dates like "today" or "this month".
 - Amounts are in PEN unless the user says otherwise.
-- When a merchant has no category, ask the user and save it with set_merchant_category.
+- Pick categories only from list_categories. If one clearly fits, use it and tell
+  the user which one. If none fits, ask the user for a name and create it with
+  create_category; never invent one without asking.
+- When an expense's merchant has no category yet, save it with
+  set_merchant_category so future expenses there get it automatically.
 - Never add up amounts in different currencies.
 """
 
@@ -79,6 +84,17 @@ def create_server(session_factory: sessionmaker[Session]) -> MCPServer:
     def set_merchant_category(data: SetMerchantCategoryInput) -> SetMerchantCategoryOut:
         """Learn a merchant's category and apply it to its uncategorized expenses."""
         return call(service.set_merchant_category, data)
+
+    @server.tool(annotations=READ_ONLY)
+    def list_categories() -> list[str]:
+        """Names of all categories expenses can be filed under."""
+        with session_factory() as session:
+            return service.list_categories(session)
+
+    @server.tool()
+    def create_category(data: CreateCategoryInput) -> str:
+        """Add a new category chosen by the user. Returns its name."""
+        return call(service.create_category, data)
 
     return server
 

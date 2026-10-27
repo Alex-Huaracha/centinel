@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from centinel.db.models import Expense, ExpenseSource
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
+    CreateCategoryInput,
     FindMerchantInput,
     GetSpendingInput,
     ListExpensesInput,
@@ -15,8 +16,10 @@ from centinel.expenses.schemas import (
     SetMerchantCategoryInput,
 )
 from centinel.expenses.service import (
+    create_category,
     find_merchant,
     get_spending,
+    list_categories,
     list_expenses,
     save_expense,
     set_merchant_category,
@@ -185,3 +188,28 @@ def test_set_merchant_category_backfills_uncategorized_expenses(session: Session
         Decimal("2.00"): "shopping",
         Decimal("3.00"): "food",
     }
+
+
+# --- categories ---
+
+
+def test_list_categories_alphabetically(session: Session):
+    assert list_categories(session) == ["food", "shopping", "transport"]
+
+
+def test_create_category_stores_it_in_lowercase(session: Session):
+    name = create_category(session, CreateCategoryInput(name="  Pets "))
+
+    assert name == "pets"
+    assert "pets" in list_categories(session)
+    _save(session, amount=Decimal(30), category="PETS")
+
+
+def test_create_category_rejects_existing_name(session: Session):
+    with pytest.raises(ExpenseError, match="already exists"):
+        create_category(session, CreateCategoryInput(name="Food"))
+
+
+def test_create_category_rejects_blank_name():
+    with pytest.raises(ValidationError):
+        CreateCategoryInput(name="   ")

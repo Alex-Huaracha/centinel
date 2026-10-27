@@ -46,12 +46,15 @@ async def test_exposes_tools_with_read_only_hints(client: Client):
         "list_expenses",
         "find_merchant",
         "set_merchant_category",
+        "list_categories",
+        "create_category",
     }
     assert read_only == {
         "get_current_time",
         "get_spending",
         "list_expenses",
         "find_merchant",
+        "list_categories",
     }
 
 
