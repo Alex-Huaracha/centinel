@@ -37,8 +37,8 @@ Centinel tracks the user's personal expenses.
 - Pick categories only from list_categories. If one clearly fits, use it and tell
   the user which one. If none fits, ask the user for a name and create it with
   create_category; never invent one without asking.
-- When an expense's merchant has no category yet, save it with
-  set_merchant_category so future expenses there get it automatically.
+- A merchant learns the category of its first categorized expense. Use
+  set_merchant_category only when the user wants to change what it learned.
 - Never add up amounts in different currencies.
 """
 
@@ -82,7 +82,7 @@ def create_server(session_factory: sessionmaker[Session]) -> MCPServer:
 
     @server.tool()
     def set_merchant_category(data: SetMerchantCategoryInput) -> SetMerchantCategoryOut:
-        """Learn a merchant's category and apply it to its uncategorized expenses."""
+        """Change a merchant's learned category and apply it to its uncategorized expenses."""
         return call(service.set_merchant_category, data)
 
     @server.tool(annotations=READ_ONLY)

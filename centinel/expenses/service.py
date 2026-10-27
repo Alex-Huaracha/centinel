@@ -5,11 +5,12 @@ changes and returns a schema output. The agent tools and the HTTP endpoints
 are thin adapters over these functions.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
+from centinel.config import get_settings
 from centinel.db.models import Category, Expense, ExpenseSource, Merchant
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
@@ -58,16 +59,26 @@ def _get_or_create_merchant(session: Session, name: str) -> Merchant:
     return merchant
 
 
+def _start_of_day(day: date) -> datetime:
+    return datetime.combine(day, time.min, tzinfo=get_settings().timezone)
+
+
 def _filter_expenses(
     stmt: Select,
-    start: datetime | None = None,
-    end: datetime | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
     category: Category | None = None,
 ) -> Select:
-    if start is not None:
-        stmt = stmt.where(Expense.spent_at >= start)
-    if end is not None:
-        stmt = stmt.where(Expense.spent_at < end)
+    """Filter by whole days in the user's timezone, both ends inclusive."""
+    if start_date is not None and end_date is not None and end_date < start_date:
+        raise ExpenseError(f"end_date {end_date} is before start_date {start_date}.")
+    if start_date is not None:
+        stmt = stmt.where(Expense.spent_at >= _start_of_day(start_date))
+    if end_date is not None:
+        # Up to the start of the next day, so the whole end_date is included.
+        stmt = stmt.where(
+            Expense.spent_at < _start_of_day(end_date + timedelta(days=1))
+        )
     if category is not None:
         stmt = stmt.where(Expense.category_id == category.id)
     return stmt
@@ -88,6 +99,9 @@ def save_expense(session: Session, data: SaveExpenseInput) -> ExpenseOut:
     )
     if data.category is not None:
         category = _get_category(session, data.category)
+        # The first category a merchant gets is learned for its future expenses.
+        if merchant is not None and merchant.default_category is None:
+            merchant.default_category = category
     else:
         category = merchant.default_category if merchant else None
 
@@ -114,8 +128,8 @@ def get_spending(session: Session, data: GetSpendingInput) -> list[SpendingTotal
         select(Expense.currency, func.sum(Expense.amount), func.count()).group_by(
             Expense.currency
         ),
-        data.start,
-        data.end,
+        data.start_date,
+        data.end_date,
         category,
     )
     return [
@@ -127,7 +141,7 @@ def get_spending(session: Session, data: GetSpendingInput) -> list[SpendingTotal
 def list_expenses(session: Session, data: ListExpensesInput) -> list[ExpenseOut]:
     """List expenses, most recent first."""
     category = _get_category(session, data.category) if data.category else None
-    stmt = _filter_expenses(select(Expense), data.start, data.end, category)
+    stmt = _filter_expenses(select(Expense), data.start_date, data.end_date, category)
     if data.merchant:
         stmt = stmt.join(Expense.merchant).where(
             Merchant.name.ilike(f"%{data.merchant.strip()}%")

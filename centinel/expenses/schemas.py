@@ -4,17 +4,31 @@ The input models double as the JSON schema the LLM sees, so their field
 descriptions are written for the model.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
+from centinel.config import get_settings
 from centinel.db.models import Expense, Merchant, PaymentMethod
 
 Currency = Annotated[
     str, Field(pattern=r"^[A-Z]{3}$", description="ISO 4217 code, e.g. PEN or USD")
 ]
+
+
+def _assume_user_timezone(value: datetime) -> datetime:
+    # People speak in local time, so a datetime without offset is the user's.
+    if value.tzinfo is None:
+        return value.replace(tzinfo=get_settings().timezone)
+    return value
+
+
+UserDatetime = Annotated[datetime, AfterValidator(_assume_user_timezone)]
+
+# Tells the model the offset is optional.
+DATETIME_FORMAT = "ISO 8601. Without a UTC offset, it is the user's local time."
 
 
 # --- Inputs ---
@@ -23,8 +37,9 @@ Currency = Annotated[
 class SaveExpenseInput(BaseModel):
     amount: Decimal = Field(gt=Decimal(0), max_digits=12, decimal_places=2)
     currency: Currency = "PEN"
-    spent_at: AwareDatetime | None = Field(
-        default=None, description="When the expense happened. Defaults to now."
+    spent_at: UserDatetime | None = Field(
+        default=None,
+        description=f"When the expense happened. Defaults to now. {DATETIME_FORMAT}",
     )
     description: str | None = Field(default=None, max_length=500)
     merchant: str | None = Field(
@@ -32,9 +47,15 @@ class SaveExpenseInput(BaseModel):
     )
     category: str | None = Field(
         default=None,
-        description="Category name. If omitted, the merchant's learned category is used.",
+        description=(
+            "Category name. If omitted, the merchant's learned category is used. "
+            "A merchant without one learns this category."
+        ),
     )
-    payment_method: PaymentMethod = PaymentMethod.OTHER
+    payment_method: PaymentMethod = Field(
+        default=PaymentMethod.OTHER,
+        description=f"One of: {', '.join(PaymentMethod)}.",
+    )
     source_email_id: str | None = Field(
         default=None,
         max_length=100,
@@ -43,14 +64,14 @@ class SaveExpenseInput(BaseModel):
 
 
 class GetSpendingInput(BaseModel):
-    start: AwareDatetime = Field(description="Start of the period, inclusive.")
-    end: AwareDatetime = Field(description="End of the period, exclusive.")
+    start_date: date = Field(description="First day of the period, inclusive.")
+    end_date: date = Field(description="Last day of the period, inclusive.")
     category: str | None = None
 
 
 class ListExpensesInput(BaseModel):
-    start: AwareDatetime | None = Field(default=None, description="Inclusive.")
-    end: AwareDatetime | None = Field(default=None, description="Exclusive.")
+    start_date: date | None = Field(default=None, description="First day, inclusive.")
+    end_date: date | None = Field(default=None, description="Last day, inclusive.")
     category: str | None = None
     merchant: str | None = None
     limit: int = Field(default=20, ge=1, le=100)

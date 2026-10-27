@@ -11,7 +11,7 @@ from centinel.mcp_server.server import create_server
 
 pytestmark = pytest.mark.anyio
 
-OCTOBER = {"start": "2026-10-01T00:00:00-05:00", "end": "2026-11-01T00:00:00-05:00"}
+OCTOBER = {"start_date": "2026-10-01", "end_date": "2026-10-31"}
 
 
 def _text(result: CallToolResult) -> str:

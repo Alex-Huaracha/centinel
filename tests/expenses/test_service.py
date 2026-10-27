@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from centinel.config import get_settings
 from centinel.db.models import Expense, ExpenseSource
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
@@ -25,9 +26,13 @@ from centinel.expenses.service import (
     set_merchant_category,
 )
 
-OCT_1 = datetime(2026, 10, 1, tzinfo=UTC)
-OCT_15 = datetime(2026, 10, 15, tzinfo=UTC)
-NOV_1 = datetime(2026, 11, 1, tzinfo=UTC)
+# Days are counted in the user's timezone.
+TZ = get_settings().timezone
+OCT_1 = datetime(2026, 10, 1, tzinfo=TZ)
+OCT_15 = datetime(2026, 10, 15, tzinfo=TZ)
+OCT_31_NIGHT = datetime(2026, 10, 31, 23, 30, tzinfo=TZ)
+NOV_1 = datetime(2026, 11, 1, tzinfo=TZ)
+OCTOBER = {"start_date": date(2026, 10, 1), "end_date": date(2026, 10, 31)}
 
 
 def _save(session: Session, **fields) -> None:
@@ -62,6 +67,27 @@ def test_save_expense_uses_learned_merchant_category(session: Session):
     assert result.category == "food"
 
 
+def test_save_expense_teaches_category_to_new_merchant(session: Session):
+    _save(session, amount=Decimal(25), merchant="Bembos", category="food")
+
+    result = save_expense(
+        session, SaveExpenseInput(amount=Decimal(22), merchant="Bembos")
+    )
+
+    assert result.category == "food"
+
+
+def test_save_expense_keeps_merchant_learned_category(session: Session):
+    _save(session, amount=Decimal(25), merchant="Tambo", category="food")
+    _save(session, amount=Decimal(5), merchant="Tambo", category="transport")
+
+    result = save_expense(
+        session, SaveExpenseInput(amount=Decimal(1), merchant="Tambo")
+    )
+
+    assert result.category == "food"
+
+
 def test_save_expense_rejects_unknown_category(session: Session):
     with pytest.raises(
         ExpenseError, match="Valid categories: food, shopping, transport"
@@ -92,13 +118,29 @@ def test_save_expense_sets_source_from_email_id(session: Session):
         {"amount": Decimal(0)},
         {"amount": Decimal("1.234")},
         {"amount": Decimal(10), "currency": "soles"},
-        {"amount": Decimal(10), "spent_at": datetime(2026, 10, 1)},
     ],
-    ids=["zero-amount", "three-decimals", "bad-currency", "naive-datetime"],
+    ids=["zero-amount", "three-decimals", "bad-currency"],
 )
 def test_save_expense_input_validation(fields: dict):
     with pytest.raises(ValidationError):
         SaveExpenseInput(**fields)
+
+
+def test_datetime_without_offset_is_in_user_timezone():
+    data = SaveExpenseInput.model_validate(
+        {"amount": 1, "spent_at": "2026-10-01T12:00:00"}
+    )
+
+    assert data.spent_at == datetime(2026, 10, 1, 12, tzinfo=TZ)
+
+
+def test_datetime_with_offset_is_kept():
+    data = SaveExpenseInput.model_validate(
+        {"amount": 1, "spent_at": "2026-10-01T12:00:00+00:00"}
+    )
+
+    assert data.spent_at == datetime(2026, 10, 1, 12, tzinfo=UTC)
+    assert data.spent_at is not None and data.spent_at.utcoffset() == timedelta(0)
 
 
 # --- get_spending ---
@@ -108,29 +150,45 @@ def test_get_spending_sums_per_currency_within_period(session: Session):
     _save(session, amount=Decimal("10.10"), spent_at=OCT_1, category="food")
     _save(session, amount=Decimal("5.20"), spent_at=OCT_15, category="transport")
     _save(session, amount=Decimal(30), currency="USD", spent_at=OCT_15)
-    _save(session, amount=Decimal(99), spent_at=NOV_1)  # end is exclusive
+    _save(session, amount=Decimal(1), spent_at=OCT_31_NIGHT)  # end_date is inclusive
+    _save(session, amount=Decimal(99), spent_at=NOV_1)
 
-    totals = get_spending(session, GetSpendingInput(start=OCT_1, end=NOV_1))
+    totals = get_spending(session, GetSpendingInput(**OCTOBER))
 
     assert [(t.currency, t.total, t.count) for t in totals] == [
-        ("PEN", Decimal("15.30"), 2),
+        ("PEN", Decimal("16.30"), 3),
         ("USD", Decimal("30.00"), 1),
     ]
+
+
+def test_get_spending_single_day_includes_the_whole_day(session: Session):
+    _save(session, amount=Decimal(7), spent_at=OCT_31_NIGHT)
+
+    day = date(2026, 10, 31)
+    totals = get_spending(session, GetSpendingInput(start_date=day, end_date=day))
+
+    assert [(t.total, t.count) for t in totals] == [(Decimal("7.00"), 1)]
+
+
+def test_get_spending_rejects_end_before_start(session: Session):
+    with pytest.raises(ExpenseError, match="is before start_date"):
+        get_spending(
+            session,
+            GetSpendingInput(start_date=date(2026, 10, 31), end_date=date(2026, 10, 1)),
+        )
 
 
 def test_get_spending_filters_by_category(session: Session):
     _save(session, amount=Decimal(10), spent_at=OCT_1, category="food")
     _save(session, amount=Decimal(5), spent_at=OCT_1, category="transport")
 
-    totals = get_spending(
-        session, GetSpendingInput(start=OCT_1, end=NOV_1, category="food")
-    )
+    totals = get_spending(session, GetSpendingInput(**OCTOBER, category="food"))
 
     assert [(t.total, t.count) for t in totals] == [(Decimal("10.00"), 1)]
 
 
 def test_get_spending_returns_empty_list_without_expenses(session: Session):
-    assert get_spending(session, GetSpendingInput(start=OCT_1, end=NOV_1)) == []
+    assert get_spending(session, GetSpendingInput(**OCTOBER)) == []
 
 
 # --- list_expenses ---
