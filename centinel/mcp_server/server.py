@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from centinel.config import get_settings
 from centinel.db.engine import create_db_engine, create_session_factory
 from centinel.emails import service as emails
-from centinel.emails.schemas import SenderInput
+from centinel.emails.gmail import Gmail, GmailError, GmailScript
+from centinel.emails.schemas import AddSenderOut, SenderInput
 from centinel.expenses import service
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
@@ -49,14 +50,16 @@ Centinel tracks the user's personal expenses.
 READ_ONLY = ToolAnnotations(read_only_hint=True)
 
 
-def create_server(session_factory: sessionmaker[Session]) -> MCPServer:
+def create_server(
+    session_factory: sessionmaker[Session], gmail: Gmail | None = None
+) -> MCPServer:
     server = MCPServer("centinel", instructions=INSTRUCTIONS)
 
     def call[I, O](fn: Callable[[Session, I], O], data: I) -> O:
         with session_factory() as session:
             try:
                 return fn(session, data)
-            except ExpenseError as error:
+            except (ExpenseError, GmailError) as error:
                 raise ToolError(str(error)) from error
 
     @server.tool(annotations=READ_ONLY)
@@ -107,9 +110,9 @@ def create_server(session_factory: sessionmaker[Session]) -> MCPServer:
             return emails.list_senders(session)
 
     @server.tool()
-    def add_sender(data: SenderInput) -> str:
-        """Start reading the emails of an address. Returns it in lowercase."""
-        return call(emails.add_sender, data)
+    def add_sender(data: SenderInput) -> AddSenderOut:
+        """Start reading the emails of an address and look for its recent ones."""
+        return call(lambda session, d: emails.add_sender(session, d, gmail), data)
 
     @server.tool()
     def remove_sender(data: SenderInput) -> str:
@@ -120,7 +123,9 @@ def create_server(session_factory: sessionmaker[Session]) -> MCPServer:
 
 
 def main() -> None:
-    server = create_server(create_session_factory(create_db_engine()))
+    server = create_server(
+        create_session_factory(create_db_engine()), GmailScript.from_settings()
+    )
     server.run("stdio")
 
 
