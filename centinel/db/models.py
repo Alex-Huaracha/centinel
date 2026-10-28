@@ -42,6 +42,12 @@ class ExpenseSource(StrEnum):
     MANUAL = "manual"
 
 
+class EmailStatus(StrEnum):
+    PENDING = "pending"
+    PROCESSED = "processed"
+    IGNORED = "ignored"
+
+
 def _str_enum(enum_cls: type[StrEnum], name: str) -> Enum:
     # Stored as VARCHAR + CHECK instead of a native Postgres ENUM,
     # so adding a value later is a simple migration.
@@ -103,3 +109,35 @@ class Expense(Base):
 
     category: Mapped[Category | None] = relationship()
     merchant: Mapped[Merchant | None] = relationship()
+
+
+class TrackedSender(Base):
+    """An email address whose emails Centinel reads to find expenses."""
+
+    __tablename__ = "tracked_senders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # 320 is the longest valid email address.
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class TrackedEmail(Base):
+    """An email Centinel already saw. Only its id is kept, never its content."""
+
+    __tablename__ = "tracked_emails"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    gmail_id: Mapped[str] = mapped_column(String(100), unique=True)
+    # Removing a sender forgets its emails; the expenses they created stay.
+    sender_id: Mapped[int] = mapped_column(
+        ForeignKey("tracked_senders.id", ondelete="CASCADE")
+    )
+    status: Mapped[EmailStatus] = mapped_column(
+        _str_enum(EmailStatus, "status"), default=EmailStatus.PENDING
+    )
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    sender: Mapped[TrackedSender] = relationship()
