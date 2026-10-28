@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from centinel.config import get_settings
 from centinel.db.engine import create_db_engine, create_session_factory
+from centinel.emails import service as emails
+from centinel.emails.schemas import SenderInput
 from centinel.expenses import service
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
@@ -40,6 +42,8 @@ Centinel tracks the user's personal expenses.
 - A merchant learns the category of its first categorized expense. Use
   set_merchant_category only when the user wants to change what it learned.
 - Never add up amounts in different currencies.
+- Expenses also come from the emails of tracked senders. When the user buys from
+  a new store, add the address its receipts come from with add_sender.
 """
 
 READ_ONLY = ToolAnnotations(read_only_hint=True)
@@ -95,6 +99,22 @@ def create_server(session_factory: sessionmaker[Session]) -> MCPServer:
     def create_category(data: CreateCategoryInput) -> str:
         """Add a new category chosen by the user. Returns its name."""
         return call(service.create_category, data)
+
+    @server.tool(annotations=READ_ONLY)
+    def list_senders() -> list[str]:
+        """Addresses whose emails Centinel reads to find expenses."""
+        with session_factory() as session:
+            return emails.list_senders(session)
+
+    @server.tool()
+    def add_sender(data: SenderInput) -> str:
+        """Start reading the emails of an address. Returns it in lowercase."""
+        return call(emails.add_sender, data)
+
+    @server.tool()
+    def remove_sender(data: SenderInput) -> str:
+        """Stop reading the emails of an address, e.g. one added with a typo."""
+        return call(emails.remove_sender, data)
 
     return server
 

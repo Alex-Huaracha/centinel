@@ -48,6 +48,9 @@ async def test_exposes_tools_with_read_only_hints(client: Client):
         "set_merchant_category",
         "list_categories",
         "create_category",
+        "list_senders",
+        "add_sender",
+        "remove_sender",
     }
     assert read_only == {
         "get_current_time",
@@ -55,6 +58,7 @@ async def test_exposes_tools_with_read_only_hints(client: Client):
         "list_expenses",
         "find_merchant",
         "list_categories",
+        "list_senders",
     }
 
 
