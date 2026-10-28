@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -7,14 +8,22 @@ from sqlalchemy.orm import Session
 
 from centinel.db.models import EmailStatus, TrackedEmail
 from centinel.emails.gmail import FoundEmail, GmailError
-from centinel.emails.schemas import SenderInput
+from centinel.emails.schemas import (
+    IgnoreEmailInput,
+    ListPendingEmailsInput,
+    SenderInput,
+)
 from centinel.emails.service import (
     add_sender,
+    ignore_email,
+    list_pending_emails,
     list_senders,
     remove_sender,
     sync_emails,
 )
 from centinel.expenses.errors import ExpenseError
+from centinel.expenses.schemas import SaveExpenseInput
+from centinel.expenses.service import save_expense
 
 YAPE = "notificaciones@yape.example"
 SHOP = "orders@shop.example"
@@ -32,6 +41,8 @@ class FakeGmail:
         self.emails = emails or []
         self.fail = fail
         self.searches: list[list[str]] = []
+        # Emails missing here count as deleted from Gmail.
+        self.raws: dict[str, bytes] = {}
 
     def search(self, senders: list[str], days: int) -> list[FoundEmail]:
         if self.fail:
@@ -40,7 +51,7 @@ class FakeGmail:
         return self.emails
 
     def get_raw(self, gmail_id: str) -> bytes | None:
-        return None
+        return self.raws.get(gmail_id)
 
 
 def _add(session: Session, email: str, gmail: FakeGmail | None = None) -> str:
@@ -167,3 +178,104 @@ def test_sync_emails_without_senders_does_not_call_gmail(session: Session):
 
     assert sync_emails(session, gmail) == 0
     assert gmail.searches == []
+
+
+# --- list_pending_emails / ignore_email ---
+
+RAW = b"Subject: Yapeo\r\n\r\nS/ 20.00"
+
+
+def _pending_setup(session: Session, count: int) -> FakeGmail:
+    gmail = FakeGmail(
+        [
+            FoundEmail(
+                gmail_id=f"g-{day}",
+                sender=YAPE,
+                received_at=datetime(2026, 10, day, tzinfo=UTC),
+            )
+            for day in range(count, 0, -1)  # Gmail answers newest first
+        ]
+    )
+    gmail.raws = {email.gmail_id: RAW for email in gmail.emails}
+    _add(session, YAPE, gmail)
+    return gmail
+
+
+def _list(session: Session, gmail: FakeGmail | None, limit: int = 10):
+    return list_pending_emails(session, gmail, ListPendingEmailsInput(limit=limit))
+
+
+def test_list_pending_emails_oldest_first_with_text(session: Session):
+    gmail = _pending_setup(session, 3)
+
+    result = _list(session, gmail, limit=2)
+
+    assert [email.gmail_id for email in result.emails] == ["g-1", "g-2"]
+    assert result.emails[0].subject == "Yapeo"
+    assert result.emails[0].text == "S/ 20.00"
+    assert result.remaining == 1
+
+
+def test_list_pending_emails_finds_new_ones(session: Session):
+    gmail = _pending_setup(session, 1)
+    gmail.emails.append(_found("g-new"))
+    gmail.raws["g-new"] = RAW
+
+    result = _list(session, gmail)
+
+    assert {email.gmail_id for email in result.emails} == {"g-1", "g-new"}
+
+
+def test_list_pending_emails_ignores_deleted_ones(session: Session):
+    gmail = _pending_setup(session, 2)
+    del gmail.raws["g-1"]
+
+    result = _list(session, gmail)
+
+    assert [email.gmail_id for email in result.emails] == ["g-2"]
+    assert result.remaining == 0
+    assert ("g-1", YAPE, EmailStatus.IGNORED) in _tracked(session)
+
+
+def test_list_pending_emails_without_gmail_explains_setup(session: Session):
+    with pytest.raises(ExpenseError, match="not set up"):
+        _list(session, None)
+
+
+def test_saving_an_email_expense_marks_it_processed(session: Session):
+    gmail = _pending_setup(session, 2)
+
+    save_expense(session, SaveExpenseInput(amount=Decimal(20), source_email_id="g-1"))
+
+    assert [email.gmail_id for email in _list(session, gmail).emails] == ["g-2"]
+    assert ("g-1", YAPE, EmailStatus.PROCESSED) in _tracked(session)
+
+
+def test_ignored_email_is_not_read_again(session: Session):
+    gmail = _pending_setup(session, 2)
+
+    assert ignore_email(session, IgnoreEmailInput(gmail_id="g-1")) == "g-1"
+
+    assert [email.gmail_id for email in _list(session, gmail).emails] == ["g-2"]
+
+
+def test_ignore_email_rejects_unknown_or_done_email(session: Session):
+    _pending_setup(session, 1)
+    ignore_email(session, IgnoreEmailInput(gmail_id="g-1"))
+
+    for gmail_id in ("g-1", "g-404"):
+        with pytest.raises(ExpenseError, match="no pending email"):
+            ignore_email(session, IgnoreEmailInput(gmail_id=gmail_id))
+
+
+def test_sender_added_again_keeps_registered_emails_processed(session: Session):
+    gmail = _pending_setup(session, 2)
+    save_expense(session, SaveExpenseInput(amount=Decimal(20), source_email_id="g-1"))
+    remove_sender(session, SenderInput(email=YAPE))
+
+    _add(session, YAPE, gmail)
+
+    assert sorted(_tracked(session)) == [
+        ("g-1", YAPE, EmailStatus.PROCESSED),
+        ("g-2", YAPE, EmailStatus.PENDING),
+    ]

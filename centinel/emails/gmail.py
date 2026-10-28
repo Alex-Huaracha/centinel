@@ -1,6 +1,7 @@
 """Client for the Apps Script web app in apps_script/, Centinel's only way into Gmail."""
 
 import base64
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parseaddr
@@ -9,6 +10,9 @@ from typing import Any, Protocol
 import httpx
 
 from centinel.config import get_settings
+
+# httpx logs every request URL at INFO, and the URL carries the secret.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class GmailError(Exception):

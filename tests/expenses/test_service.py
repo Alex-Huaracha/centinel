@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from centinel.config import get_settings
-from centinel.db.models import Expense, ExpenseSource
+from centinel.db.models import Expense, ExpenseSource, PaymentMethod
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
     CreateCategoryInput,
@@ -15,6 +15,7 @@ from centinel.expenses.schemas import (
     ListExpensesInput,
     SaveExpenseInput,
     SetMerchantCategoryInput,
+    UpdateExpenseInput,
 )
 from centinel.expenses.service import (
     create_category,
@@ -24,6 +25,7 @@ from centinel.expenses.service import (
     list_expenses,
     save_expense,
     set_merchant_category,
+    update_expense,
 )
 
 # Days are counted in the user's timezone.
@@ -271,3 +273,104 @@ def test_create_category_rejects_existing_name(session: Session):
 def test_create_category_rejects_blank_name():
     with pytest.raises(ValidationError):
         CreateCategoryInput(name="   ")
+
+
+# --- merchant_reference ---
+
+
+def test_same_masked_name_with_other_digits_is_another_merchant(session: Session):
+    _save(
+        session,
+        amount=Decimal(10),
+        merchant="Edilberto Mac*",
+        merchant_reference="606",
+        category="food",
+    )
+    _save(
+        session,
+        amount=Decimal(5),
+        merchant="Edilberto Mac*",
+        merchant_reference="112",
+        category="transport",
+    )
+
+    again = save_expense(
+        session,
+        SaveExpenseInput(
+            amount=Decimal(1), merchant="edilberto mac*", merchant_reference="606"
+        ),
+    )
+
+    assert (again.merchant, again.merchant_reference) == ("Edilberto Mac*", "606")
+    assert again.category == "food"
+    merchants = find_merchant(session, FindMerchantInput(query="edilberto"))
+    assert {(m.reference, m.category) for m in merchants} == {
+        ("606", "food"),
+        ("112", "transport"),
+    }
+
+
+def test_merchant_without_reference_is_not_one_with_reference(session: Session):
+    _save(session, amount=Decimal(10), merchant="Bembos", category="food")
+
+    result = save_expense(
+        session,
+        SaveExpenseInput(amount=Decimal(1), merchant="Bembos", merchant_reference="1"),
+    )
+
+    assert result.category is None
+
+
+def test_merchant_reference_requires_merchant():
+    with pytest.raises(ValidationError, match="requires merchant"):
+        SaveExpenseInput(amount=Decimal(1), merchant_reference="606")
+
+
+# --- update_expense ---
+
+
+def test_update_expense_changes_only_given_fields(session: Session):
+    saved = save_expense(
+        session,
+        SaveExpenseInput(
+            amount=Decimal(100),
+            merchant="Self",
+            category="shopping",
+            payment_method=PaymentMethod.YAPE,
+            spent_at=OCT_15,
+        ),
+    )
+
+    result = update_expense(
+        session, UpdateExpenseInput(id=saved.id, category="food", amount=Decimal(90))
+    )
+
+    assert (result.category, result.amount) == ("food", Decimal("90.00"))
+    assert (result.merchant, result.payment_method, result.spent_at) == (
+        "Self",
+        PaymentMethod.YAPE,
+        OCT_15,
+    )
+
+
+def test_update_expense_moves_it_to_another_merchant(session: Session):
+    saved = save_expense(session, SaveExpenseInput(amount=Decimal(1), merchant="A"))
+
+    result = update_expense(
+        session,
+        UpdateExpenseInput(id=saved.id, merchant="Esther Agu*", merchant_reference="9"),
+    )
+
+    assert (result.merchant, result.merchant_reference) == ("Esther Agu*", "9")
+
+
+def test_update_expense_rejects_unknown_id(session: Session):
+    with pytest.raises(ExpenseError, match="no expense with id 999"):
+        update_expense(session, UpdateExpenseInput(id=999, category="food"))
+
+
+def test_update_expense_rejects_unknown_category(session: Session):
+    saved = save_expense(session, SaveExpenseInput(amount=Decimal(1)))
+
+    with pytest.raises(ExpenseError, match="Unknown category"):
+        update_expense(session, UpdateExpenseInput(id=saved.id, category="pets"))

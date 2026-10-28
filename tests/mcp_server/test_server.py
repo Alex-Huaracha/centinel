@@ -39,9 +39,15 @@ async def test_exposes_tools_with_read_only_hints(client: Client):
         for name, tool in tools.items()
         if tool.annotations and tool.annotations.read_only_hint
     }
+    destructive = {
+        name
+        for name, tool in tools.items()
+        if tool.annotations and tool.annotations.destructive_hint
+    }
     assert set(tools) == {
         "get_current_time",
         "save_expense",
+        "update_expense",
         "get_spending",
         "list_expenses",
         "find_merchant",
@@ -51,6 +57,8 @@ async def test_exposes_tools_with_read_only_hints(client: Client):
         "list_senders",
         "add_sender",
         "remove_sender",
+        "list_pending_emails",
+        "ignore_email",
     }
     assert read_only == {
         "get_current_time",
@@ -60,6 +68,7 @@ async def test_exposes_tools_with_read_only_hints(client: Client):
         "list_categories",
         "list_senders",
     }
+    assert destructive == {"update_expense"}
 
 
 async def test_saved_expense_shows_up_in_spending(client: Client):

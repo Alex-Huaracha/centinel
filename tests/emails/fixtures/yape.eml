@@ -1,0 +1,18 @@
+From: Yape <notificaciones@yape.example>
+To: someone@example.com
+Subject: Constancia de pago
+Date: Tue, 27 Oct 2026 16:21:53 -0500
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b1"
+
+--b1
+Content-Type: text/html; charset="utf-8"
+
+<html><head><style>td { color: purple; }</style></head><body>
+<table><tr><td>Monto</td><td>S/ 20.00</td></tr>
+<tr><td>Fecha y hora</td><td>27 oct. 2026 - 04:21 pm</td></tr>
+<tr><td>Nombre del beneficiario</td><td>Edilberto Mac*</td></tr>
+<tr><td>Celular del beneficiario</td><td>XXXXXXXXXXXX606</td></tr>
+<tr><td>Nro. de operaci&oacute;n</td><td>00000001</td></tr></table>
+</body></html>
+--b1--

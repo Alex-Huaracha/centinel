@@ -11,7 +11,14 @@ from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from centinel.config import get_settings
-from centinel.db.models import Category, Expense, ExpenseSource, Merchant
+from centinel.db.models import (
+    Category,
+    EmailStatus,
+    Expense,
+    ExpenseSource,
+    Merchant,
+    TrackedEmail,
+)
 from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
     CreateCategoryInput,
@@ -24,6 +31,7 @@ from centinel.expenses.schemas import (
     SetMerchantCategoryInput,
     SetMerchantCategoryOut,
     SpendingTotal,
+    UpdateExpenseInput,
 )
 
 # --- Helpers ---
@@ -45,16 +53,23 @@ def _get_category(session: Session, name: str) -> Category:
     return category
 
 
-def _find_merchant_exact(session: Session, name: str) -> Merchant | None:
+def _find_merchant_exact(
+    session: Session, name: str, reference: str | None
+) -> Merchant | None:
     return session.scalar(
-        select(Merchant).where(func.lower(Merchant.name) == name.strip().lower())
+        select(Merchant).where(
+            func.lower(Merchant.name) == name.strip().lower(),
+            Merchant.reference.is_not_distinct_from(reference),
+        )
     )
 
 
-def _get_or_create_merchant(session: Session, name: str) -> Merchant:
-    merchant = _find_merchant_exact(session, name)
+def _get_or_create_merchant(
+    session: Session, name: str, reference: str | None = None
+) -> Merchant:
+    merchant = _find_merchant_exact(session, name, reference)
     if merchant is None:
-        merchant = Merchant(name=name.strip())
+        merchant = Merchant(name=name.strip(), reference=reference)
         session.add(merchant)
     return merchant
 
@@ -95,7 +110,9 @@ def save_expense(session: Session, data: SaveExpenseInput) -> ExpenseOut:
         raise ExpenseError(f"The email {data.source_email_id} was already registered.")
 
     merchant = (
-        _get_or_create_merchant(session, data.merchant) if data.merchant else None
+        _get_or_create_merchant(session, data.merchant, data.merchant_reference)
+        if data.merchant
+        else None
     )
     if data.category is not None:
         category = _get_category(session, data.category)
@@ -117,6 +134,32 @@ def save_expense(session: Session, data: SaveExpenseInput) -> ExpenseOut:
         source_email_id=data.source_email_id,
     )
     session.add(expense)
+    if data.source_email_id is not None:
+        session.execute(
+            update(TrackedEmail)
+            .where(TrackedEmail.gmail_id == data.source_email_id)
+            .values(status=EmailStatus.PROCESSED)
+        )
+    session.commit()
+    return ExpenseOut.from_expense(expense)
+
+
+def update_expense(session: Session, data: UpdateExpenseInput) -> ExpenseOut:
+    """Change the given fields of one expense."""
+    expense = session.get(Expense, data.id)
+    if expense is None:
+        raise ExpenseError(f"There is no expense with id {data.id}.")
+
+    if data.merchant is not None:
+        expense.merchant = _get_or_create_merchant(
+            session, data.merchant, data.merchant_reference
+        )
+    if data.category is not None:
+        expense.category = _get_category(session, data.category)
+    for field in ("amount", "currency", "spent_at", "description", "payment_method"):
+        value = getattr(data, field)
+        if value is not None:
+            setattr(expense, field, value)
     session.commit()
     return ExpenseOut.from_expense(expense)
 
@@ -166,7 +209,7 @@ def set_merchant_category(
 ) -> SetMerchantCategoryOut:
     """Learn a merchant's category and apply it to its uncategorized expenses."""
     category = _get_category(session, data.category)
-    merchant = _get_or_create_merchant(session, data.merchant)
+    merchant = _get_or_create_merchant(session, data.merchant, data.merchant_reference)
     merchant.default_category = category
     session.flush()
 

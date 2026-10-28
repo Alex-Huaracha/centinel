@@ -8,7 +8,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from centinel.config import get_settings
 from centinel.db.models import Expense, Merchant, PaymentMethod
@@ -30,11 +30,35 @@ UserDatetime = Annotated[datetime, AfterValidator(_assume_user_timezone)]
 # Tells the model the offset is optional.
 DATETIME_FORMAT = "ISO 8601. Without a UTC offset, it is the user's local time."
 
+MerchantReference = Annotated[
+    str,
+    Field(
+        max_length=20,
+        description=(
+            "Visible digits of the payee's number when they are named only partly, "
+            "e.g. 606 from XXXXXXXXXXXX606. Tells apart people with the same name."
+        ),
+    ),
+]
+
+
+class _MerchantFields(BaseModel):
+    merchant: str | None = Field(
+        default=None, max_length=200, description="Store or person that was paid."
+    )
+    merchant_reference: MerchantReference | None = None
+
+    @model_validator(mode="after")
+    def _reference_needs_merchant(self) -> _MerchantFields:
+        if self.merchant_reference is not None and self.merchant is None:
+            raise ValueError("merchant_reference requires merchant.")
+        return self
+
 
 # --- Inputs ---
 
 
-class SaveExpenseInput(BaseModel):
+class SaveExpenseInput(_MerchantFields):
     amount: Decimal = Field(gt=Decimal(0), max_digits=12, decimal_places=2)
     currency: Currency = "PEN"
     spent_at: UserDatetime | None = Field(
@@ -42,9 +66,6 @@ class SaveExpenseInput(BaseModel):
         description=f"When the expense happened. Defaults to now. {DATETIME_FORMAT}",
     )
     description: str | None = Field(default=None, max_length=500)
-    merchant: str | None = Field(
-        default=None, max_length=200, description="Store or person that was paid."
-    )
     category: str | None = Field(
         default=None,
         description=(
@@ -60,6 +81,22 @@ class SaveExpenseInput(BaseModel):
         default=None,
         max_length=100,
         description="Gmail message id, only when the expense comes from an email.",
+    )
+
+
+class UpdateExpenseInput(_MerchantFields):
+    """Only the fields given are changed; the rest stay as they are."""
+
+    id: int = Field(description="Id of the expense, as list_expenses shows it.")
+    amount: Decimal | None = Field(
+        default=None, gt=Decimal(0), max_digits=12, decimal_places=2
+    )
+    currency: Currency | None = None
+    spent_at: UserDatetime | None = Field(default=None, description=DATETIME_FORMAT)
+    description: str | None = Field(default=None, max_length=500)
+    category: str | None = None
+    payment_method: PaymentMethod | None = Field(
+        default=None, description=f"One of: {', '.join(PaymentMethod)}."
     )
 
 
@@ -83,6 +120,7 @@ class FindMerchantInput(BaseModel):
 
 class SetMerchantCategoryInput(BaseModel):
     merchant: str = Field(min_length=1, max_length=200)
+    merchant_reference: MerchantReference | None = None
     category: str
 
 
@@ -105,18 +143,21 @@ class ExpenseOut(BaseModel):
     spent_at: datetime
     description: str | None
     merchant: str | None
+    merchant_reference: str | None
     category: str | None
     payment_method: PaymentMethod
 
     @classmethod
     def from_expense(cls, expense: Expense) -> ExpenseOut:
+        merchant = expense.merchant
         return cls(
             id=expense.id,
             amount=expense.amount,
             currency=expense.currency,
             spent_at=expense.spent_at,
             description=expense.description,
-            merchant=expense.merchant.name if expense.merchant else None,
+            merchant=merchant.name if merchant else None,
+            merchant_reference=merchant.reference if merchant else None,
             category=expense.category.name if expense.category else None,
             payment_method=expense.payment_method,
         )
@@ -130,12 +171,17 @@ class SpendingTotal(BaseModel):
 
 class MerchantOut(BaseModel):
     name: str
+    reference: str | None
     category: str | None
 
     @classmethod
     def from_merchant(cls, merchant: Merchant) -> MerchantOut:
         category = merchant.default_category
-        return cls(name=merchant.name, category=category.name if category else None)
+        return cls(
+            name=merchant.name,
+            reference=merchant.reference,
+            category=category.name if category else None,
+        )
 
 
 class SetMerchantCategoryOut(BaseModel):

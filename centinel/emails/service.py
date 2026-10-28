@@ -4,13 +4,21 @@ Same conventions as the expenses service: each function receives a session and
 a schema input, and commits its own changes.
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from centinel.config import get_settings
-from centinel.db.models import TrackedEmail, TrackedSender
+from centinel.db.models import EmailStatus, Expense, TrackedEmail, TrackedSender
 from centinel.emails.gmail import Gmail, GmailError
-from centinel.emails.schemas import AddSenderOut, SenderInput
+from centinel.emails.parsing import email_to_text
+from centinel.emails.schemas import (
+    AddSenderOut,
+    IgnoreEmailInput,
+    ListPendingEmailsInput,
+    PendingEmailOut,
+    PendingEmailsOut,
+    SenderInput,
+)
 from centinel.expenses.errors import ExpenseError
 
 
@@ -46,11 +54,16 @@ def sync_emails(
         if email.sender in by_email
     ]
 
+    ids = [email.gmail_id for email in found]
     known = set(
         session.scalars(
-            select(TrackedEmail.gmail_id).where(
-                TrackedEmail.gmail_id.in_([email.gmail_id for email in found])
-            )
+            select(TrackedEmail.gmail_id).where(TrackedEmail.gmail_id.in_(ids))
+        )
+    )
+    # A sender added again may have emails that already became expenses.
+    registered = set(
+        session.scalars(
+            select(Expense.source_email_id).where(Expense.source_email_id.in_(ids))
         )
     )
     session.add_all(
@@ -58,6 +71,9 @@ def sync_emails(
             gmail_id=email.gmail_id,
             sender=by_email[email.sender],
             received_at=email.received_at,
+            status=EmailStatus.PROCESSED
+            if email.gmail_id in registered
+            else EmailStatus.PENDING,
         )
         for email in found
         if email.gmail_id not in known
@@ -101,3 +117,49 @@ def remove_sender(session: Session, data: SenderInput) -> str:
     session.delete(sender)
     session.commit()
     return email
+
+
+def list_pending_emails(
+    session: Session, gmail: Gmail | None, data: ListPendingEmailsInput
+) -> PendingEmailsOut:
+    """Look for new emails, then read the pending ones, oldest first."""
+    if gmail is None:
+        raise ExpenseError("Email intake is not set up, see apps_script/README.md.")
+    sync_emails(session, gmail)
+
+    pending = select(TrackedEmail).where(TrackedEmail.status == EmailStatus.PENDING)
+    emails: list[PendingEmailOut] = []
+    for email in session.scalars(pending.order_by(TrackedEmail.received_at)):
+        if len(emails) == data.limit:
+            break
+        raw = gmail.get_raw(email.gmail_id)
+        if raw is None:
+            # Deleted from Gmail before it was read; nothing left to register.
+            email.status = EmailStatus.IGNORED
+            continue
+        subject, text = email_to_text(raw)
+        emails.append(
+            PendingEmailOut(
+                gmail_id=email.gmail_id,
+                sender=email.sender.email,
+                received_at=email.received_at,
+                subject=subject,
+                text=text,
+            )
+        )
+    session.commit()
+
+    total = session.scalar(select(func.count()).select_from(pending.subquery()))
+    return PendingEmailsOut(emails=emails, remaining=(total or 0) - len(emails))
+
+
+def ignore_email(session: Session, data: IgnoreEmailInput) -> str:
+    """Mark a pending email as not being an expense. Returns its id."""
+    email = session.scalar(
+        select(TrackedEmail).where(TrackedEmail.gmail_id == data.gmail_id)
+    )
+    if email is None or email.status != EmailStatus.PENDING:
+        raise ExpenseError(f"There is no pending email {data.gmail_id}.")
+    email.status = EmailStatus.IGNORED
+    session.commit()
+    return data.gmail_id

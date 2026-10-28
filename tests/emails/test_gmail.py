@@ -1,4 +1,5 @@
 import base64
+import logging
 from datetime import UTC, datetime
 
 import httpx
@@ -114,3 +115,12 @@ def test_from_settings_is_none_when_not_configured(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(get_settings(), "gmail_script_url", None)
 
     assert GmailScript.from_settings() is None
+
+
+def test_requests_never_log_the_secret(caplog: pytest.LogCaptureFixture):
+    script, _ = _script({"emails": []})
+
+    with caplog.at_level(logging.DEBUG):
+        script.search(["a@yape.example"], 30)
+
+    assert SECRET not in caplog.text

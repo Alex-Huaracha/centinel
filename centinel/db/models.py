@@ -10,6 +10,7 @@ from sqlalchemy import (
     MetaData,
     Numeric,
     String,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -72,9 +73,16 @@ class Merchant(Base):
     """A store or person the agent already knows, with the category it learned."""
 
     __tablename__ = "merchants"
+    __table_args__ = (
+        # Two people can share a masked name like "Edilberto Mac*"; the visible
+        # digits of their number tell them apart. Without digits, names stay
+        # unique: NULLS NOT DISTINCT makes two NULL references collide.
+        UniqueConstraint("name", "reference", postgresql_nulls_not_distinct=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(200), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    reference: Mapped[str | None] = mapped_column(String(20))
     default_category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"))
 
     default_category: Mapped[Category | None] = relationship()
