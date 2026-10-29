@@ -21,7 +21,7 @@ from centinel.emails.service import (
     remove_sender,
     sync_emails,
 )
-from centinel.expenses.errors import ExpenseError
+from centinel.errors import UserError
 from centinel.expenses.schemas import SaveExpenseInput
 from centinel.expenses.service import save_expense
 
@@ -76,7 +76,7 @@ def test_add_sender_stores_it_in_lowercase(session: Session):
 def test_add_sender_rejects_tracked_address(session: Session):
     _add(session, YAPE)
 
-    with pytest.raises(ExpenseError, match="already tracked"):
+    with pytest.raises(UserError, match="already tracked"):
         _add(session, YAPE.upper())
 
 
@@ -111,7 +111,7 @@ def test_add_sender_without_gmail_reports_no_count(session: Session):
 
 
 def test_add_sender_keeps_sender_when_gmail_fails(session: Session):
-    with pytest.raises(ExpenseError, match="was added, but"):
+    with pytest.raises(UserError, match="was added, but"):
         _add(session, YAPE, FakeGmail(fail=True))
 
     assert list_senders(session) == [YAPE]
@@ -137,7 +137,7 @@ def test_remove_sender_forgets_its_emails(session: Session):
 def test_remove_sender_lists_tracked_ones_when_unknown(session: Session):
     _add(session, YAPE)
 
-    with pytest.raises(ExpenseError, match=f"Tracked senders: {YAPE}"):
+    with pytest.raises(UserError, match=f"Tracked senders: {YAPE}"):
         remove_sender(session, SenderInput(email="notificaciones@yap.example"))
 
 
@@ -238,7 +238,7 @@ def test_list_pending_emails_ignores_deleted_ones(session: Session):
 
 
 def test_list_pending_emails_without_gmail_explains_setup(session: Session):
-    with pytest.raises(ExpenseError, match="not set up"):
+    with pytest.raises(UserError, match="not set up"):
         _list(session, None)
 
 
@@ -264,7 +264,7 @@ def test_ignore_email_rejects_unknown_or_done_email(session: Session):
     ignore_email(session, IgnoreEmailInput(gmail_id="g-1"))
 
     for gmail_id in ("g-1", "g-404"):
-        with pytest.raises(ExpenseError, match="no pending email"):
+        with pytest.raises(UserError, match="no pending email"):
             ignore_email(session, IgnoreEmailInput(gmail_id=gmail_id))
 
 

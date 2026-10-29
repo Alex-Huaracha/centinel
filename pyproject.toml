@@ -1,7 +1,7 @@
 [project]
 name = "centinel"
 version = "0.1.0"
-description = "AI-powered personal expense tracker that reads bank and store emails and reports through Telegram"
+description = "Personal expense tracker that reads bank and store emails and lets an AI agent register and categorize them through MCP"
 readme = "README.md"
 authors = [
     { name = "Alex Huaracha", email = "129701149+Alex-Huaracha@users.noreply.github.com" }

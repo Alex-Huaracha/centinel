@@ -19,7 +19,7 @@ from centinel.db.models import (
     Merchant,
     TrackedEmail,
 )
-from centinel.expenses.errors import ExpenseError
+from centinel.errors import UserError
 from centinel.expenses.schemas import (
     CreateCategoryInput,
     ExpenseOut,
@@ -46,7 +46,7 @@ def _find_category(session: Session, name: str) -> Category | None:
 def _get_category(session: Session, name: str) -> Category:
     category = _find_category(session, name)
     if category is None:
-        raise ExpenseError(
+        raise UserError(
             f"Unknown category '{name}'. "
             f"Valid categories: {', '.join(list_categories(session))}."
         )
@@ -86,7 +86,7 @@ def _filter_expenses(
 ) -> Select:
     """Filter by whole days in the user's timezone, both ends inclusive."""
     if start_date is not None and end_date is not None and end_date < start_date:
-        raise ExpenseError(f"end_date {end_date} is before start_date {start_date}.")
+        raise UserError(f"end_date {end_date} is before start_date {start_date}.")
     if start_date is not None:
         stmt = stmt.where(Expense.spent_at >= _start_of_day(start_date))
     if end_date is not None:
@@ -107,7 +107,7 @@ def save_expense(session: Session, data: SaveExpenseInput) -> ExpenseOut:
     if data.source_email_id is not None and session.scalar(
         select(Expense.id).where(Expense.source_email_id == data.source_email_id)
     ):
-        raise ExpenseError(f"The email {data.source_email_id} was already registered.")
+        raise UserError(f"The email {data.source_email_id} was already registered.")
 
     merchant = (
         _get_or_create_merchant(session, data.merchant, data.merchant_reference)
@@ -148,7 +148,7 @@ def update_expense(session: Session, data: UpdateExpenseInput) -> ExpenseOut:
     """Change the given fields of one expense."""
     expense = session.get(Expense, data.id)
     if expense is None:
-        raise ExpenseError(f"There is no expense with id {data.id}.")
+        raise UserError(f"There is no expense with id {data.id}.")
 
     if data.merchant is not None:
         expense.merchant = _get_or_create_merchant(
@@ -234,7 +234,7 @@ def create_category(session: Session, data: CreateCategoryInput) -> str:
     """Add a new category and return its name, stored in lowercase."""
     name = data.name.lower()
     if _find_category(session, name) is not None:
-        raise ExpenseError(f"The category '{name}' already exists.")
+        raise UserError(f"The category '{name}' already exists.")
     session.add(Category(name=name))
     session.commit()
     return name

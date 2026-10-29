@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from centinel.config import get_settings
 from centinel.db.models import Expense, ExpenseSource, PaymentMethod
-from centinel.expenses.errors import ExpenseError
+from centinel.errors import UserError
 from centinel.expenses.schemas import (
     CreateCategoryInput,
     FindMerchantInput,
@@ -91,16 +91,14 @@ def test_save_expense_keeps_merchant_learned_category(session: Session):
 
 
 def test_save_expense_rejects_unknown_category(session: Session):
-    with pytest.raises(
-        ExpenseError, match="Valid categories: food, shopping, transport"
-    ):
+    with pytest.raises(UserError, match="Valid categories: food, shopping, transport"):
         save_expense(session, SaveExpenseInput(amount=Decimal(10), category="pets"))
 
 
 def test_save_expense_rejects_duplicate_email(session: Session):
     _save(session, amount=Decimal(10), source_email_id="gmail-123")
 
-    with pytest.raises(ExpenseError, match="already registered"):
+    with pytest.raises(UserError, match="already registered"):
         _save(session, amount=Decimal(10), source_email_id="gmail-123")
 
 
@@ -173,7 +171,7 @@ def test_get_spending_single_day_includes_the_whole_day(session: Session):
 
 
 def test_get_spending_rejects_end_before_start(session: Session):
-    with pytest.raises(ExpenseError, match="is before start_date"):
+    with pytest.raises(UserError, match="is before start_date"):
         get_spending(
             session,
             GetSpendingInput(start_date=date(2026, 10, 31), end_date=date(2026, 10, 1)),
@@ -266,7 +264,7 @@ def test_create_category_stores_it_in_lowercase(session: Session):
 
 
 def test_create_category_rejects_existing_name(session: Session):
-    with pytest.raises(ExpenseError, match="already exists"):
+    with pytest.raises(UserError, match="already exists"):
         create_category(session, CreateCategoryInput(name="Food"))
 
 
@@ -365,12 +363,12 @@ def test_update_expense_moves_it_to_another_merchant(session: Session):
 
 
 def test_update_expense_rejects_unknown_id(session: Session):
-    with pytest.raises(ExpenseError, match="no expense with id 999"):
+    with pytest.raises(UserError, match="no expense with id 999"):
         update_expense(session, UpdateExpenseInput(id=999, category="food"))
 
 
 def test_update_expense_rejects_unknown_category(session: Session):
     saved = save_expense(session, SaveExpenseInput(amount=Decimal(1)))
 
-    with pytest.raises(ExpenseError, match="Unknown category"):
+    with pytest.raises(UserError, match="Unknown category"):
         update_expense(session, UpdateExpenseInput(id=saved.id, category="pets"))

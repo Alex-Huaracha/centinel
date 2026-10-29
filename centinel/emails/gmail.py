@@ -16,7 +16,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class GmailError(Exception):
-    """Gmail could not be reached; worded for the agent like ExpenseError."""
+    """Gmail could not be reached; worded for the agent like UserError."""
 
 
 @dataclass(frozen=True)

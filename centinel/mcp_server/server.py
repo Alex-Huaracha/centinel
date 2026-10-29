@@ -1,7 +1,7 @@
 """MCP server that exposes the expenses service as tools.
 
 Each tool is a thin adapter: it opens a database session, calls the service and
-turns an ExpenseError into a ToolError, so the model reads the message and can
+turns a UserError into a ToolError, so the model reads the message and can
 correct its next call.
 """
 
@@ -24,8 +24,8 @@ from centinel.emails.schemas import (
     PendingEmailsOut,
     SenderInput,
 )
+from centinel.errors import UserError
 from centinel.expenses import service
-from centinel.expenses.errors import ExpenseError
 from centinel.expenses.schemas import (
     CreateCategoryInput,
     ExpenseOut,
@@ -99,7 +99,7 @@ def create_server(
         with session_factory() as session:
             try:
                 return fn(session, data)
-            except (ExpenseError, GmailError) as error:
+            except (UserError, GmailError) as error:
                 raise ToolError(str(error)) from error
 
     @server.tool(annotations=READ_ONLY)

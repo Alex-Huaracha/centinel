@@ -19,7 +19,7 @@ from centinel.emails.schemas import (
     PendingEmailsOut,
     SenderInput,
 )
-from centinel.expenses.errors import ExpenseError
+from centinel.errors import UserError
 
 
 def _find_sender(session: Session, email: str) -> TrackedSender | None:
@@ -89,7 +89,7 @@ def add_sender(
     # Email addresses are matched case-insensitively in practice.
     email = data.email.lower()
     if _find_sender(session, email) is not None:
-        raise ExpenseError(f"The sender {email} is already tracked.")
+        raise UserError(f"The sender {email} is already tracked.")
     sender = TrackedSender(email=email)
     session.add(sender)
     session.commit()
@@ -99,7 +99,7 @@ def add_sender(
     try:
         found = sync_emails(session, gmail, [sender])
     except GmailError as error:
-        raise ExpenseError(
+        raise UserError(
             f"{email} was added, but its emails could not be searched. {error}"
         ) from error
     return AddSenderOut(email=email, emails_found=found)
@@ -111,7 +111,7 @@ def remove_sender(session: Session, data: SenderInput) -> str:
     sender = _find_sender(session, email)
     if sender is None:
         tracked = ", ".join(list_senders(session)) or "none"
-        raise ExpenseError(
+        raise UserError(
             f"The sender {email} is not tracked. Tracked senders: {tracked}."
         )
     session.delete(sender)
@@ -124,7 +124,7 @@ def list_pending_emails(
 ) -> PendingEmailsOut:
     """Look for new emails, then read the pending ones, oldest first."""
     if gmail is None:
-        raise ExpenseError("Email intake is not set up, see apps_script/README.md.")
+        raise UserError("Email intake is not set up, see apps_script/README.md.")
     sync_emails(session, gmail)
 
     pending = select(TrackedEmail).where(TrackedEmail.status == EmailStatus.PENDING)
@@ -159,7 +159,7 @@ def ignore_email(session: Session, data: IgnoreEmailInput) -> str:
         select(TrackedEmail).where(TrackedEmail.gmail_id == data.gmail_id)
     )
     if email is None or email.status != EmailStatus.PENDING:
-        raise ExpenseError(f"There is no pending email {data.gmail_id}.")
+        raise UserError(f"There is no pending email {data.gmail_id}.")
     email.status = EmailStatus.IGNORED
     session.commit()
     return data.gmail_id
