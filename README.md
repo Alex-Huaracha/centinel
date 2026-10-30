@@ -14,7 +14,7 @@ a person was for.
 
 ## Demo
 
-<!-- TODO: GIF of the agent processing pending emails and asking what a payment was for. -->
+https://github.com/user-attachments/assets/6dd0a700-ced5-4e68-86b1-bafadda15f42
 
 ## How it works
 
