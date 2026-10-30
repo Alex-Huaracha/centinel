@@ -18,16 +18,16 @@ a person was for.
 
 ## How it works
 
-Centinel is an [MCP](https://modelcontextprotocol.io) server. Claude Desktop runs
-it and calls its tools; the model does the reading and reasoning, Centinel does
-the bookkeeping. No LLM API key is needed: the model is the one in your Claude
-subscription.
+Centinel is an [MCP](https://modelcontextprotocol.io) server. An MCP client such
+as Claude Desktop, Cursor or VS Code runs it locally and calls its tools: the
+model does the reading and reasoning, Centinel does the bookkeeping. No LLM API
+key is needed; the model is the one your client already uses.
 
 ```mermaid
 flowchart LR
     Gmail -->|read-only| AS[Apps Script web app]
     AS -->|HTTPS + secret| C[Centinel MCP server]
-    Claude[Claude Desktop] <-->|stdio| C
+    Client["MCP client (e.g. Claude Desktop)"] <-->|stdio| C
     C --> DB[(Postgres)]
 ```
 
@@ -65,8 +65,9 @@ An email becomes an expense like this:
 
 ## Design decisions
 
-- **MCP instead of calling an LLM API.** The model comes with the Claude
-  subscription, and the same server works with any MCP client. Centinel stays a
+- **MCP instead of calling an LLM API.** The model comes with the client you
+  already use, and the same server works with any MCP client that runs local
+  servers. Centinel stays a
   plain, testable Python service that never parses natural language itself.
 - **No per-store templates.** Instead of a parser per email format, the agent
   reads each email as text. A new store only needs `add_sender`, and a format
@@ -85,8 +86,8 @@ An email becomes an expense like this:
 
 - **Prompt injection:** emails are written by third parties. The agent is told
   to read them as data and never follow instructions inside them, and the only
-  tool that overwrites data (`update_expense`) is marked destructive so the
-  client asks you before each call. There is no delete tool.
+  tool that overwrites data (`update_expense`) is marked destructive, so
+  clients that honor it ask you before each call. There is no delete tool.
 - **Least privilege on Gmail:** the Apps Script uses the `gmail.readonly` scope;
   it cannot send, change or delete emails.
 - **Secret handling:** the Apps Script is protected by a shared secret that
@@ -102,7 +103,8 @@ Pydantic · httpx · Google Apps Script · pytest · ruff · pyrefly
 ## Setup
 
 Requirements: [uv](https://docs.astral.sh/uv/), a PostgreSQL database
-([Neon](https://neon.tech) or the local one in `compose.yml`) and
+([Neon](https://neon.tech) or the local one in `compose.yml`) and an MCP client
+that runs local (stdio) servers. Tested with
 [Claude Desktop](https://claude.ai/download).
 
 1. Clone the repository and install the dependencies:
@@ -127,8 +129,9 @@ Requirements: [uv](https://docs.astral.sh/uv/), a PostgreSQL database
    [`apps_script/README.md`](apps_script/README.md) and fill in
    `GMAIL_SCRIPT_URL` and `GMAIL_SCRIPT_SECRET`.
 
-5. Add Centinel to Claude Desktop (Settings → Developer → Edit config) and
-   restart it:
+5. Add Centinel to your MCP client and restart it. This is the config for Claude
+   Desktop (Settings → Developer → Edit config); other clients take the same
+   `command` and `args` in their own config file:
 
    ```json
    {
@@ -141,7 +144,7 @@ Requirements: [uv](https://docs.astral.sh/uv/), a PostgreSQL database
    }
    ```
 
-Then ask Claude something like "I spent 12 on a taxi today" or "add my bank's
+Then ask the agent something like "I spent 12 on a taxi today" or "add my bank's
 notifications sender and check my emails".
 
 ## Development
