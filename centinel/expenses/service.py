@@ -216,8 +216,10 @@ def _spending_query(
     """Sum and count of the filtered expenses per currency and group_by key."""
     total = func.sum(Expense.amount)
     stmt = select(Expense.currency, total, func.count())
-    keys: list[QueryableAttribute | ColumnElement] = []
+    keys: list[QueryableAttribute | ColumnElement]
     match group_by:
+        case None:
+            keys = []
         case SpendingGroup.CATEGORY:
             keys = [Category.name]
             stmt = stmt.outerjoin(Expense.category)
@@ -264,6 +266,8 @@ def list_expenses(session: Session, data: ListExpensesInput) -> list[ExpenseOut]
         session, select(Expense), data, data.start_date, data.end_date
     )
     match data.missing:
+        case None:
+            pass
         case MissingField.CATEGORY:
             stmt = stmt.where(Expense.category_id.is_(None))
         case MissingField.DESCRIPTION:
