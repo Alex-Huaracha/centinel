@@ -41,7 +41,7 @@ OCTOBER = {"start_date": date(2026, 10, 1), "end_date": date(2026, 10, 31)}
 
 
 def _save(session: Session, **fields) -> None:
-    save_expense(session, SaveExpenseInput(**fields))
+    save_expense(session, SaveExpenseInput(**{"currency": "PEN", **fields}))
 
 
 # --- save_expense ---
@@ -50,7 +50,9 @@ def _save(session: Session, **fields) -> None:
 def test_save_expense_creates_merchant_and_category(session: Session):
     result = save_expense(
         session,
-        SaveExpenseInput(amount=Decimal("25.50"), merchant="Tambo", category="Food"),
+        SaveExpenseInput(
+            currency="PEN", amount=Decimal("25.50"), merchant="Tambo", category="Food"
+        ),
     )
 
     assert result.amount == Decimal("25.50")
@@ -59,13 +61,30 @@ def test_save_expense_creates_merchant_and_category(session: Session):
     assert result.category == "food"
 
 
+def test_save_expense_without_currency_takes_the_most_used_one(session: Session):
+    _save(session, amount=Decimal(1), currency="USD")
+    _save(session, amount=Decimal(2), currency="MXN")
+    _save(session, amount=Decimal(3), currency="MXN")
+
+    result = save_expense(session, SaveExpenseInput(amount=Decimal(4)))
+
+    assert result.currency == "MXN"
+
+
+def test_save_expense_without_currency_or_expenses_asks_for_it(session: Session):
+    with pytest.raises(UserError, match="ask the user which currency"):
+        save_expense(session, SaveExpenseInput(amount=Decimal(4), merchant="Tambo"))
+
+    assert find_merchant(session, FindMerchantInput(query="Tambo")) == []
+
+
 def test_save_expense_uses_learned_merchant_category(session: Session):
     set_merchant_category(
         session, SetMerchantCategoryInput(merchant="Tambo", category="food")
     )
 
     result = save_expense(
-        session, SaveExpenseInput(amount=Decimal(10), merchant="TAMBO")
+        session, SaveExpenseInput(currency="PEN", amount=Decimal(10), merchant="TAMBO")
     )
 
     assert result.merchant == "Tambo"
@@ -76,7 +95,7 @@ def test_save_expense_teaches_category_to_new_merchant(session: Session):
     _save(session, amount=Decimal(25), merchant="Bembos", category="food")
 
     result = save_expense(
-        session, SaveExpenseInput(amount=Decimal(22), merchant="Bembos")
+        session, SaveExpenseInput(currency="PEN", amount=Decimal(22), merchant="Bembos")
     )
 
     assert result.category == "food"
@@ -87,7 +106,7 @@ def test_save_expense_keeps_merchant_learned_category(session: Session):
     _save(session, amount=Decimal(5), merchant="Tambo", category="transport")
 
     result = save_expense(
-        session, SaveExpenseInput(amount=Decimal(1), merchant="Tambo")
+        session, SaveExpenseInput(currency="PEN", amount=Decimal(1), merchant="Tambo")
     )
 
     assert result.category == "food"
@@ -95,7 +114,10 @@ def test_save_expense_keeps_merchant_learned_category(session: Session):
 
 def test_save_expense_rejects_unknown_category(session: Session):
     with pytest.raises(UserError, match="Valid categories: food, shopping, transport"):
-        save_expense(session, SaveExpenseInput(amount=Decimal(10), category="pets"))
+        save_expense(
+            session,
+            SaveExpenseInput(currency="PEN", amount=Decimal(10), category="pets"),
+        )
 
 
 def test_save_expense_rejects_duplicate_email(session: Session):
@@ -107,9 +129,10 @@ def test_save_expense_rejects_duplicate_email(session: Session):
 
 def test_save_expense_sets_source_from_email_id(session: Session):
     email = save_expense(
-        session, SaveExpenseInput(amount=Decimal(10), source_email_id="g-1")
+        session,
+        SaveExpenseInput(currency="PEN", amount=Decimal(10), source_email_id="g-1"),
     )
-    manual = save_expense(session, SaveExpenseInput(amount=Decimal(10)))
+    manual = save_expense(session, SaveExpenseInput(currency="PEN", amount=Decimal(10)))
 
     assert session.get_one(Expense, email.id).source == ExpenseSource.EMAIL
     assert session.get_one(Expense, manual.id).source == ExpenseSource.MANUAL
@@ -432,7 +455,10 @@ def test_same_masked_name_with_other_digits_is_another_merchant(session: Session
     again = save_expense(
         session,
         SaveExpenseInput(
-            amount=Decimal(1), merchant="edilberto mac*", merchant_reference="606"
+            currency="PEN",
+            amount=Decimal(1),
+            merchant="edilberto mac*",
+            merchant_reference="606",
         ),
     )
 
@@ -450,7 +476,9 @@ def test_merchant_without_reference_is_not_one_with_reference(session: Session):
 
     result = save_expense(
         session,
-        SaveExpenseInput(amount=Decimal(1), merchant="Bembos", merchant_reference="1"),
+        SaveExpenseInput(
+            currency="PEN", amount=Decimal(1), merchant="Bembos", merchant_reference="1"
+        ),
     )
 
     assert result.category is None
@@ -458,7 +486,7 @@ def test_merchant_without_reference_is_not_one_with_reference(session: Session):
 
 def test_merchant_reference_requires_merchant():
     with pytest.raises(ValidationError, match="requires merchant"):
-        SaveExpenseInput(amount=Decimal(1), merchant_reference="606")
+        SaveExpenseInput(currency="PEN", amount=Decimal(1), merchant_reference="606")
 
 
 # --- update_expense ---
@@ -468,6 +496,7 @@ def test_update_expense_changes_only_given_fields(session: Session):
     saved = save_expense(
         session,
         SaveExpenseInput(
+            currency="PEN",
             amount=Decimal(100),
             merchant="Self",
             category="shopping",
@@ -489,7 +518,9 @@ def test_update_expense_changes_only_given_fields(session: Session):
 
 
 def test_update_expense_moves_it_to_another_merchant(session: Session):
-    saved = save_expense(session, SaveExpenseInput(amount=Decimal(1), merchant="A"))
+    saved = save_expense(
+        session, SaveExpenseInput(currency="PEN", amount=Decimal(1), merchant="A")
+    )
 
     result = update_expense(
         session,
@@ -505,7 +536,7 @@ def test_update_expense_rejects_unknown_id(session: Session):
 
 
 def test_update_expense_rejects_unknown_category(session: Session):
-    saved = save_expense(session, SaveExpenseInput(amount=Decimal(1)))
+    saved = save_expense(session, SaveExpenseInput(currency="PEN", amount=Decimal(1)))
 
     with pytest.raises(UserError, match="Unknown category"):
         update_expense(session, UpdateExpenseInput(id=saved.id, category="pets"))

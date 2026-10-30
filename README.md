@@ -115,9 +115,11 @@ that runs local (stdio) servers. Tested with
    uv sync
    ```
 
-2. Copy `.env.example` to `.env` and set `DATABASE_URL`. For Neon, take the
-   connection string from its dashboard and change `postgresql://` to
-   `postgresql+psycopg://`. For a local database, run `docker compose up -d db`.
+2. Copy `.env.example` to `.env` and set `DATABASE_URL` and `TIMEZONE`. For
+   Neon, take the connection string from its dashboard and change
+   `postgresql://` to `postgresql+psycopg://`. For a local database, run
+   `docker compose up -d db`. `TIMEZONE` is where you are, e.g.
+   `America/Mexico_City`, not where the server runs.
 
 3. Create the tables and the default categories:
 

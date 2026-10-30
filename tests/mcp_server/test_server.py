@@ -74,7 +74,13 @@ async def test_exposes_tools_with_read_only_hints(client: Client):
 async def test_saved_expense_shows_up_in_spending(client: Client):
     await client.call_tool(
         "save_expense",
-        {"data": {"amount": "25.50", "spent_at": "2026-10-10T12:00:00-05:00"}},
+        {
+            "data": {
+                "amount": "25.50",
+                "currency": "PEN",
+                "spent_at": "2026-10-10T12:00:00-05:00",
+            }
+        },
     )
 
     result = await client.call_tool("get_spending", {"data": OCTOBER})

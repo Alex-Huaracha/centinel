@@ -89,6 +89,22 @@ def _get_or_create_merchant(
     return merchant
 
 
+def _usual_currency(session: Session) -> str:
+    """The currency of most of the user's expenses, for amounts given without one."""
+    currency = session.scalar(
+        select(Expense.currency)
+        .group_by(Expense.currency)
+        .order_by(func.count().desc(), Expense.currency)
+        .limit(1)
+    )
+    if currency is None:
+        raise UserError(
+            "There are no expenses yet to take the currency from: ask the user "
+            "which currency this amount is in."
+        )
+    return currency
+
+
 def _start_of_day(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=get_settings().timezone)
 
@@ -154,6 +170,7 @@ def save_expense(session: Session, data: SaveExpenseInput) -> ExpenseOut:
         select(Expense.id).where(Expense.source_email_id == data.source_email_id)
     ):
         raise UserError(f"The email {data.source_email_id} was already registered.")
+    currency = data.currency or _usual_currency(session)
 
     merchant = (
         _get_or_create_merchant(session, data.merchant, data.merchant_reference)
@@ -170,7 +187,7 @@ def save_expense(session: Session, data: SaveExpenseInput) -> ExpenseOut:
 
     expense = Expense(
         amount=data.amount,
-        currency=data.currency,
+        currency=currency,
         spent_at=data.spent_at or datetime.now(UTC),
         description=data.description,
         merchant=merchant,

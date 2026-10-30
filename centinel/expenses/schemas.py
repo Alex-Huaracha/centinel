@@ -61,7 +61,11 @@ class _MerchantFields(BaseModel):
 
 class SaveExpenseInput(_MerchantFields):
     amount: Decimal = Field(gt=Decimal(0), max_digits=12, decimal_places=2)
-    currency: Currency = "PEN"
+    currency: Currency | None = Field(
+        default=None,
+        description="Omit it when neither the user nor the email states one: the "
+        "currency the user uses most is taken.",
+    )
     spent_at: UserDatetime | None = Field(
         default=None,
         description=f"When the expense happened. Defaults to now. {DATETIME_FORMAT}",

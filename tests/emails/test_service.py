@@ -245,7 +245,10 @@ def test_list_pending_emails_without_gmail_explains_setup(session: Session):
 def test_saving_an_email_expense_marks_it_processed(session: Session):
     gmail = _pending_setup(session, 2)
 
-    save_expense(session, SaveExpenseInput(amount=Decimal(20), source_email_id="g-1"))
+    save_expense(
+        session,
+        SaveExpenseInput(currency="PEN", amount=Decimal(20), source_email_id="g-1"),
+    )
 
     assert [email.gmail_id for email in _list(session, gmail).emails] == ["g-2"]
     assert ("g-1", YAPE, EmailStatus.PROCESSED) in _tracked(session)
@@ -270,7 +273,10 @@ def test_ignore_email_rejects_unknown_or_done_email(session: Session):
 
 def test_sender_added_again_keeps_registered_emails_processed(session: Session):
     gmail = _pending_setup(session, 2)
-    save_expense(session, SaveExpenseInput(amount=Decimal(20), source_email_id="g-1"))
+    save_expense(
+        session,
+        SaveExpenseInput(currency="PEN", amount=Decimal(20), source_email_id="g-1"),
+    )
     remove_sender(session, SenderInput(email=YAPE))
 
     _add(session, YAPE, gmail)
