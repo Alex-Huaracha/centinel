@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     )
 
     database_url: PostgresDsn
+    # Database the tests use (the db-test service in compose.yml). Only tests need it.
+    test_database_url: PostgresDsn | None = None
     # The user's timezone, used to resolve dates like "today" or "this month".
     timezone: ZoneInfo = ZoneInfo("UTC")
     # Apps Script web app that reads Gmail (see apps_script/). Unset = no email intake.
