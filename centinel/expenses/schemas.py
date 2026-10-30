@@ -6,6 +6,7 @@ descriptions are written for the model.
 
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -100,17 +101,54 @@ class UpdateExpenseInput(_MerchantFields):
     )
 
 
-class GetSpendingInput(BaseModel):
+class SpendingGroup(StrEnum):
+    CATEGORY = "category"
+    MERCHANT = "merchant"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class ExpenseOrder(StrEnum):
+    DATE = "date"
+    AMOUNT = "amount"
+
+
+class MissingField(StrEnum):
+    CATEGORY = "category"
+    DESCRIPTION = "description"
+
+
+class ExpenseFilters(BaseModel):
+    category: str | None = None
+    merchant: str | None = Field(
+        default=None, description="Full or partial merchant name."
+    )
+    payment_method: PaymentMethod | None = None
+
+
+class GetSpendingInput(ExpenseFilters):
     start_date: date = Field(description="First day of the period, inclusive.")
     end_date: date = Field(description="Last day of the period, inclusive.")
-    category: str | None = None
+    group_by: SpendingGroup | None = Field(
+        default=None,
+        description=(
+            "Split the totals by category or merchant, largest first, or by day, "
+            "week or month, in date order. Weeks start on Monday."
+        ),
+    )
 
 
-class ListExpensesInput(BaseModel):
+class ListExpensesInput(ExpenseFilters):
     start_date: date | None = Field(default=None, description="First day, inclusive.")
     end_date: date | None = Field(default=None, description="Last day, inclusive.")
-    category: str | None = None
-    merchant: str | None = None
+    missing: MissingField | None = Field(
+        default=None, description="Only the expenses without this field."
+    )
+    order_by: ExpenseOrder = Field(
+        default=ExpenseOrder.DATE,
+        description="date: most recent first. amount: largest first.",
+    )
     limit: int = Field(default=20, ge=1, le=100)
 
 
@@ -167,6 +205,25 @@ class SpendingTotal(BaseModel):
     currency: str
     total: Decimal
     count: int
+
+
+class SpendingGroupTotal(SpendingTotal):
+    group: str | None = Field(
+        description=(
+            "The category, the merchant (with its reference, if any) or the first "
+            "day of the day, week or month. Null for the expenses without a "
+            "category or merchant."
+        ),
+    )
+
+
+class SpendingOut(BaseModel):
+    totals: list[SpendingTotal] = Field(
+        description="Total of the whole period, one per currency."
+    )
+    groups: list[SpendingGroupTotal] = Field(
+        default=[], description="The breakdown asked with group_by."
+    )
 
 
 class MerchantOut(BaseModel):

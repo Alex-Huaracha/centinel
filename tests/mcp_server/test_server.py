@@ -81,7 +81,8 @@ async def test_saved_expense_shows_up_in_spending(client: Client):
 
     assert not result.is_error
     assert result.structured_content == {
-        "result": [{"currency": "PEN", "total": "25.50", "count": 1}]
+        "totals": [{"currency": "PEN", "total": "25.50", "count": 1}],
+        "groups": [],
     }
 
 

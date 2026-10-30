@@ -36,7 +36,7 @@ from centinel.expenses.schemas import (
     SaveExpenseInput,
     SetMerchantCategoryInput,
     SetMerchantCategoryOut,
-    SpendingTotal,
+    SpendingOut,
     UpdateExpenseInput,
 )
 
@@ -47,6 +47,9 @@ General:
 - Call get_current_time before resolving relative dates like "today".
 - Amounts are in PEN unless the user says otherwise. Never add up amounts in
   different currencies.
+- Never add up amounts yourself: every total you report comes from a
+  get_spending response. Its totals are the whole period; use group_by for a
+  breakdown by category, merchant, day, week or month.
 - The amount is what was actually paid, e.g. "total paid by card", not the list
   price, the subtotal or the total before discounts.
 - The description says what the money was spent on, in the user's words when
@@ -118,13 +121,14 @@ def create_server(
         return call(service.update_expense, data)
 
     @server.tool(annotations=READ_ONLY)
-    def get_spending(data: GetSpendingInput) -> list[SpendingTotal]:
-        """Total spent in a period, one row per currency."""
+    def get_spending(data: GetSpendingInput) -> SpendingOut:
+        """Total spent in a period, one row per currency, optionally split by
+        category, merchant, day, week or month."""
         return call(service.get_spending, data)
 
     @server.tool(annotations=READ_ONLY)
     def list_expenses(data: ListExpensesInput) -> list[ExpenseOut]:
-        """List expenses, most recent first."""
+        """List expenses, most recent or largest first."""
         return call(service.list_expenses, data)
 
     @server.tool(annotations=READ_ONLY)

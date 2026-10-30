@@ -59,7 +59,9 @@ An email becomes an expense like this:
 - **Questions over guesses:** when the payee, amount or purpose is unclear, the
   agent asks you.
 - **Corrections:** any expense can be edited later by asking the agent.
-- **Spending queries:** totals per period and category, one per currency.
+- **Spending queries:** totals computed in SQL, one per currency, filtered by
+  period, category, merchant or payment method, and split by category, merchant,
+  day, week or month in the user's timezone. The agent never adds up amounts.
 
 ## Design decisions
 

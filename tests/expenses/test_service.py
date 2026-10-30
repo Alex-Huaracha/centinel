@@ -10,11 +10,14 @@ from centinel.db.models import Expense, ExpenseSource, PaymentMethod
 from centinel.errors import UserError
 from centinel.expenses.schemas import (
     CreateCategoryInput,
+    ExpenseOrder,
     FindMerchantInput,
     GetSpendingInput,
     ListExpensesInput,
+    MissingField,
     SaveExpenseInput,
     SetMerchantCategoryInput,
+    SpendingGroup,
     UpdateExpenseInput,
 )
 from centinel.expenses.service import (
@@ -153,7 +156,7 @@ def test_get_spending_sums_per_currency_within_period(session: Session):
     _save(session, amount=Decimal(1), spent_at=OCT_31_NIGHT)  # end_date is inclusive
     _save(session, amount=Decimal(99), spent_at=NOV_1)
 
-    totals = get_spending(session, GetSpendingInput(**OCTOBER))
+    totals = get_spending(session, GetSpendingInput(**OCTOBER)).totals
 
     assert [(t.currency, t.total, t.count) for t in totals] == [
         ("PEN", Decimal("16.30"), 3),
@@ -165,7 +168,9 @@ def test_get_spending_single_day_includes_the_whole_day(session: Session):
     _save(session, amount=Decimal(7), spent_at=OCT_31_NIGHT)
 
     day = date(2026, 10, 31)
-    totals = get_spending(session, GetSpendingInput(start_date=day, end_date=day))
+    totals = get_spending(
+        session, GetSpendingInput(start_date=day, end_date=day)
+    ).totals
 
     assert [(t.total, t.count) for t in totals] == [(Decimal("7.00"), 1)]
 
@@ -182,13 +187,119 @@ def test_get_spending_filters_by_category(session: Session):
     _save(session, amount=Decimal(10), spent_at=OCT_1, category="food")
     _save(session, amount=Decimal(5), spent_at=OCT_1, category="transport")
 
-    totals = get_spending(session, GetSpendingInput(**OCTOBER, category="food"))
+    totals = get_spending(session, GetSpendingInput(**OCTOBER, category="food")).totals
 
     assert [(t.total, t.count) for t in totals] == [(Decimal("10.00"), 1)]
 
 
-def test_get_spending_returns_empty_list_without_expenses(session: Session):
-    assert get_spending(session, GetSpendingInput(**OCTOBER)) == []
+def test_get_spending_returns_empty_lists_without_expenses(session: Session):
+    result = get_spending(session, GetSpendingInput(**OCTOBER))
+
+    assert result.totals == []
+    assert result.groups == []
+
+
+def test_get_spending_filters_by_merchant_and_payment_method(session: Session):
+    card = PaymentMethod.DEBIT_CARD
+    _save(
+        session,
+        amount=Decimal(10),
+        spent_at=OCT_1,
+        merchant="Wong",
+        payment_method=card,
+    )
+    _save(session, amount=Decimal(4), spent_at=OCT_1, merchant="Wong")
+    _save(
+        session,
+        amount=Decimal(7),
+        spent_at=OCT_1,
+        merchant="Tambo",
+        payment_method=card,
+    )
+
+    by_merchant = get_spending(
+        session, GetSpendingInput(**OCTOBER, merchant="won")
+    ).totals
+    by_both = get_spending(
+        session, GetSpendingInput(**OCTOBER, merchant="won", payment_method=card)
+    ).totals
+
+    assert [(t.total, t.count) for t in by_merchant] == [(Decimal("14.00"), 2)]
+    assert [(t.total, t.count) for t in by_both] == [(Decimal("10.00"), 1)]
+
+
+def test_get_spending_by_category_largest_first(session: Session):
+    _save(session, amount=Decimal(10), spent_at=OCT_1, category="food")
+    _save(session, amount=Decimal(5), spent_at=OCT_15, category="food")
+    _save(session, amount=Decimal(30), spent_at=OCT_15, category="transport")
+    _save(session, amount=Decimal(2), spent_at=OCT_15)
+
+    result = get_spending(
+        session, GetSpendingInput(**OCTOBER, group_by=SpendingGroup.CATEGORY)
+    )
+
+    assert [(t.group, t.total, t.count) for t in result.groups] == [
+        ("transport", Decimal("30.00"), 1),
+        ("food", Decimal("15.00"), 2),
+        (None, Decimal("2.00"), 1),
+    ]
+    # The whole period comes summed too, so the agent never adds up the groups.
+    assert [(t.total, t.count) for t in result.totals] == [(Decimal("47.00"), 4)]
+
+
+def test_get_spending_by_merchant_tells_apart_references(session: Session):
+    _save(session, amount=Decimal(20), spent_at=OCT_1, merchant="Wong")
+    _save(
+        session,
+        amount=Decimal(10),
+        spent_at=OCT_1,
+        merchant="Ana Ro*",
+        merchant_reference="606",
+    )
+    _save(
+        session,
+        amount=Decimal(5),
+        spent_at=OCT_1,
+        merchant="Ana Ro*",
+        merchant_reference="478",
+    )
+
+    totals = get_spending(
+        session, GetSpendingInput(**OCTOBER, group_by=SpendingGroup.MERCHANT)
+    ).groups
+
+    assert [t.group for t in totals] == ["Wong", "Ana Ro* (606)", "Ana Ro* (478)"]
+
+
+def test_get_spending_by_month_uses_the_user_timezone(session: Session):
+    _save(session, amount=Decimal(1), spent_at=OCT_1)
+    _save(session, amount=Decimal(2), spent_at=OCT_31_NIGHT)  # already November in UTC
+    _save(session, amount=Decimal(4), spent_at=NOV_1)
+
+    totals = get_spending(
+        session,
+        GetSpendingInput(
+            start_date=date(2026, 10, 1),
+            end_date=date(2026, 11, 30),
+            group_by=SpendingGroup.MONTH,
+        ),
+    ).groups
+
+    assert [(t.group, t.total) for t in totals] == [
+        ("2026-10-01", Decimal("3.00")),
+        ("2026-11-01", Decimal("4.00")),
+    ]
+
+
+def test_get_spending_by_week_starts_on_monday(session: Session):
+    _save(session, amount=Decimal(1), spent_at=OCT_1)  # Thursday
+    _save(session, amount=Decimal(2), spent_at=OCT_15)  # Thursday, two weeks later
+
+    totals = get_spending(
+        session, GetSpendingInput(**OCTOBER, group_by=SpendingGroup.WEEK)
+    ).groups
+
+    assert [t.group for t in totals] == ["2026-09-28", "2026-10-12"]
 
 
 # --- list_expenses ---
@@ -211,6 +322,32 @@ def test_list_expenses_filters_by_merchant_partial_name(session: Session):
     result = list_expenses(session, ListExpensesInput(merchant="tambo"))
 
     assert [e.merchant for e in result] == ["Tambo+ San Isidro"]
+
+
+def test_list_expenses_largest_first(session: Session):
+    _save(session, amount=Decimal(5), spent_at=OCT_1)
+    _save(session, amount=Decimal(50), spent_at=OCT_1)
+    _save(session, amount=Decimal(20), spent_at=OCT_15)
+
+    result = list_expenses(session, ListExpensesInput(order_by=ExpenseOrder.AMOUNT))
+
+    assert [e.amount for e in result] == [Decimal(50), Decimal(20), Decimal(5)]
+
+
+def test_list_expenses_missing_category_or_description(session: Session):
+    _save(session, amount=Decimal(1), category="food", description="lunch")
+    _save(session, amount=Decimal(2), description="taxi")
+    _save(session, amount=Decimal(3), category="food")
+
+    no_category = list_expenses(
+        session, ListExpensesInput(missing=MissingField.CATEGORY)
+    )
+    no_description = list_expenses(
+        session, ListExpensesInput(missing=MissingField.DESCRIPTION)
+    )
+
+    assert [e.amount for e in no_category] == [Decimal(2)]
+    assert [e.amount for e in no_description] == [Decimal(3)]
 
 
 # --- find_merchant / set_merchant_category ---
