@@ -146,6 +146,9 @@ that runs local (stdio) servers. Tested with
    }
    ```
 
+The client reads `.env` only when it starts Centinel: restart the client after
+changing it.
+
 Then ask the agent something like "I spent 12 on a taxi today" or "add my bank's
 notifications sender and check my emails".
 

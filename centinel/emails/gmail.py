@@ -38,8 +38,11 @@ class GmailScript:
     def __init__(self, url: str, secret: str, client: httpx.Client | None = None):
         self._url = url
         self._secret = secret
-        # Apps Script answers with a redirect to googleusercontent.com.
-        self._client = client or httpx.Client(follow_redirects=True, timeout=60)
+        # Apps Script answers with a redirect to googleusercontent.com. A search
+        # takes a few seconds, more when the script starts cold.
+        self._client = client or httpx.Client(
+            follow_redirects=True, timeout=httpx.Timeout(30, connect=10)
+        )
 
     @classmethod
     def from_settings(cls) -> GmailScript | None:

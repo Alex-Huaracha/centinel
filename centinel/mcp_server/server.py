@@ -11,6 +11,7 @@ from datetime import datetime
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from centinel.config import get_settings
@@ -105,6 +106,13 @@ def create_server(
                 return fn(session, data)
             except (UserError, GmailError) as error:
                 raise ToolError(str(error)) from error
+            except OperationalError as error:
+                # psycopg names the host and port, never the password.
+                reason = str(error.orig or error).splitlines()[0]
+                raise ToolError(
+                    f"The database could not be reached: {reason}. Check "
+                    "DATABASE_URL and restart the MCP client."
+                ) from error
 
     @server.tool(annotations=READ_ONLY)
     def get_current_time() -> str:

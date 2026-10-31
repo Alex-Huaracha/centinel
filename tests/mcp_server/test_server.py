@@ -4,9 +4,11 @@ from datetime import datetime
 import pytest
 from mcp import Client
 from mcp.types import CallToolResult, TextContent
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from centinel.config import get_settings
+from centinel.db.engine import CONNECT_ARGS
 from centinel.mcp_server.server import create_server
 
 pytestmark = pytest.mark.anyio
@@ -112,3 +114,17 @@ async def test_current_time_uses_configured_timezone(client: Client):
 
     now = datetime.fromisoformat(_text(result))
     assert now.utcoffset() == datetime.now(get_settings().timezone).utcoffset()
+
+
+async def test_unreachable_database_is_reported_to_the_model():
+    # Nothing listens on port 1. libpq's shortest timeout keeps the test quick.
+    engine = create_engine(
+        "postgresql+psycopg://user:secret@127.0.0.1:1/centinel",
+        connect_args={**CONNECT_ARGS, "connect_timeout": 2},
+    )
+    async with Client(create_server(sessionmaker(engine))) as client:
+        result = await client.call_tool("get_spending", {"data": OCTOBER})
+
+    assert result.is_error
+    assert "The database could not be reached" in _text(result)
+    assert "secret" not in _text(result)
