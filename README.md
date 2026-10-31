@@ -164,3 +164,21 @@ uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run pyrefly check
 ```
+
+### Evals
+
+The tests check the code; the evals check how the model uses it. Each case in
+`evals/cases.py` gives the model a request and invented emails, runs it through
+Claude Code with Centinel's tools as its only ones, and checks what ended up in
+the database: an ad ignored, two emails of one purchase saved once, an
+instruction hidden in an email not followed, and so on. The model is not
+deterministic, so each case runs several times and reports how many passed.
+
+```sh
+uv run python -m evals                    # every case, 3 runs each
+uv run python -m evals duplicate --runs 1
+```
+
+They need the `db-test` service, where they use their own `centinel_eval`
+database, and a logged-in [Claude Code](https://claude.com/claude-code). Each
+run is a real conversation, so it counts against your plan's usage limits.
