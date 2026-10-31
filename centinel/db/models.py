@@ -30,7 +30,7 @@ class Base(DeclarativeBase):
 
 
 class PaymentMethod(StrEnum):
-    YAPE = "yape"
+    DIGITAL_WALLET = "digital_wallet"
     DEBIT_CARD = "debit_card"
     CREDIT_CARD = "credit_card"
     CASH = "cash"

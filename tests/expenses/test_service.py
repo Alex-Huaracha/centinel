@@ -500,7 +500,7 @@ def test_update_expense_changes_only_given_fields(session: Session):
             amount=Decimal(100),
             merchant="Self",
             category="shopping",
-            payment_method=PaymentMethod.YAPE,
+            payment_method=PaymentMethod.DIGITAL_WALLET,
             spent_at=OCT_15,
         ),
     )
@@ -512,7 +512,7 @@ def test_update_expense_changes_only_given_fields(session: Session):
     assert (result.category, result.amount) == ("food", Decimal("90.00"))
     assert (result.merchant, result.payment_method, result.spent_at) == (
         "Self",
-        PaymentMethod.YAPE,
+        PaymentMethod.DIGITAL_WALLET,
         OCT_15,
     )
 
