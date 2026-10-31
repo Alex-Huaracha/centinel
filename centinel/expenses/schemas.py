@@ -31,6 +31,15 @@ UserDatetime = Annotated[datetime, AfterValidator(_assume_user_timezone)]
 # Tells the model the offset is optional.
 DATETIME_FORMAT = "ISO 8601. Without a UTC offset, it is the user's local time."
 
+AMOUNT_DESCRIPTION = (
+    'What was actually paid, e.g. "total paid by card", not the list price, the '
+    "subtotal or the total before discounts."
+)
+DESCRIPTION_DESCRIPTION = (
+    "What the money was spent on, in the user's words when they give them, never "
+    "how it was paid."
+)
+
 MerchantReference = Annotated[
     str,
     Field(
@@ -60,7 +69,9 @@ class _MerchantFields(BaseModel):
 
 
 class SaveExpenseInput(_MerchantFields):
-    amount: Decimal = Field(gt=Decimal(0), max_digits=12, decimal_places=2)
+    amount: Decimal = Field(
+        gt=Decimal(0), max_digits=12, decimal_places=2, description=AMOUNT_DESCRIPTION
+    )
     currency: Currency | None = Field(
         default=None,
         description="Omit it when neither the user nor the email states one: the "
@@ -70,12 +81,16 @@ class SaveExpenseInput(_MerchantFields):
         default=None,
         description=f"When the expense happened. Defaults to now. {DATETIME_FORMAT}",
     )
-    description: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(
+        default=None, max_length=500, description=DESCRIPTION_DESCRIPTION
+    )
     category: str | None = Field(
         default=None,
         description=(
-            "Category name. If omitted, the merchant's learned category is used. "
-            "A merchant without one learns this category."
+            "A name from list_categories; tell the user which one you picked. If "
+            "none fits, ask the user for a name and create it with create_category. "
+            "If omitted, the merchant's learned category is used. A merchant "
+            "without one learns this category, and its later expenses get it."
         ),
     )
     payment_method: PaymentMethod = Field(
@@ -94,11 +109,17 @@ class UpdateExpenseInput(_MerchantFields):
 
     id: int = Field(description="Id of the expense, as list_expenses shows it.")
     amount: Decimal | None = Field(
-        default=None, gt=Decimal(0), max_digits=12, decimal_places=2
+        default=None,
+        gt=Decimal(0),
+        max_digits=12,
+        decimal_places=2,
+        description=AMOUNT_DESCRIPTION,
     )
     currency: Currency | None = None
     spent_at: UserDatetime | None = Field(default=None, description=DATETIME_FORMAT)
-    description: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(
+        default=None, max_length=500, description=DESCRIPTION_DESCRIPTION
+    )
     category: str | None = None
     payment_method: PaymentMethod | None = Field(
         default=None, description=f"One of: {', '.join(PaymentMethod)}."
